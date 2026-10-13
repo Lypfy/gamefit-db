@@ -109,7 +109,7 @@ GO
 CREATE OR ALTER PROCEDURE sp_GetReportedReviews
     @status VARCHAR(20) = NULL,       -- 'PENDING', 'DISMISSED', 'HIDDEN' hoặc NULL / 'ALL' (lấy tất cả)
     @time_range VARCHAR(20) = 'all',  -- 'all', 'today', 'week', 'month'
-    @search NVARCHAR(100) = NULL      -- Tìm theo tên người vi phạm hoặc lý do
+    @search NVARCHAR(100) = NULL      -- Tìm theo tên người vi phạm, tên game, lý do báo cáo
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -119,47 +119,46 @@ BEGIN
         u.user_name AS violator_name,
         r.comment,
         r.rating,
-        r.report_count,
-        r.report_reason,
-        r.reported_at,
+        COUNT(rr.report_id) AS report_count,
+        ISNULL(MIN(rr.report_reason), N'Không có') AS report_reason,
+        MAX(rr.reported_at) AS reported_at,
         r.report_status,
         g.name AS game_name
     FROM dbo.Reviews r
     JOIN dbo.Users u ON r.user_id = u.user_id
     JOIN dbo.Games g ON r.game_id = g.game_id
-    WHERE r.report_count > 0
-      -- Lọc theo trạng thái
+    LEFT JOIN dbo.Review_Reports rr ON r.review_id = rr.review_id
+    WHERE r.report_status IN ('PENDING', 'DISMISSED', 'HIDDEN')
       AND (@status IS NULL OR @status = 'ALL' OR r.report_status = @status)
-      -- Lọc theo khoảng thời gian
       AND (
           @time_range = 'all' OR @time_range IS NULL
-          OR (@time_range = 'today' AND CAST(r.reported_at AS DATE) = CAST(GETDATE() AS DATE))
-          OR (@time_range = 'week'  AND r.reported_at >= DATEADD(DAY, -7, GETDATE()))
-          OR (@time_range = 'month' AND r.reported_at >= DATEADD(MONTH, -1, GETDATE()))
+          OR (@time_range = 'today' AND CAST(rr.reported_at AS DATE) = CAST(DATEADD(HOUR, 7, GETUTCDATE()) AS DATE))
+          OR (@time_range = 'week'  AND rr.reported_at >= DATEADD(DAY, -7, DATEADD(HOUR, 7, GETUTCDATE())))
+          OR (@time_range = 'month' AND rr.reported_at >= DATEADD(MONTH, -1, DATEADD(HOUR, 7, GETUTCDATE())))
       )
-      -- Lọc tìm kiếm theo tên user, tên game, lý do báo cáo, nội dung hoặc chữ hiển thị trên cột Lý do
       AND (
           @search IS NULL OR LTRIM(RTRIM(@search)) = ''
           OR u.user_name LIKE N'%' + LTRIM(RTRIM(@search)) + N'%'
           OR g.name LIKE N'%' + LTRIM(RTRIM(@search)) + N'%'
-          OR r.report_reason LIKE N'%' + LTRIM(RTRIM(@search)) + N'%'
           OR r.comment LIKE N'%' + LTRIM(RTRIM(@search)) + N'%'
-          OR (
-              CASE 
-                  WHEN r.report_reason LIKE N'% | %' THEN N'Nhiều lý do'
-                  WHEN r.report_reason LIKE N'Lý do khác%' THEN N'Lý do khác'
-                  ELSE r.report_reason
-              END
-          ) LIKE N'%' + LTRIM(RTRIM(@search)) + N'%'
+          OR rr.report_reason LIKE N'%' + LTRIM(RTRIM(@search)) + N'%'
       )
+    GROUP BY 
+        r.review_id,
+        u.user_name,
+        r.comment,
+        r.rating,
+        r.report_status,
+        g.name
+    HAVING COUNT(rr.report_id) > 0 OR r.report_status IN ('DISMISSED', 'HIDDEN')
     ORDER BY 
-        CASE WHEN r.report_status = 'PENDING' THEN 0 ELSE 1 END, -- Ưu tiên 'Chờ xử lý' lên đầu
-        r.report_count DESC,
-        r.reported_at DESC;
+        CASE WHEN r.report_status = 'PENDING' THEN 0 ELSE 1 END,
+        COUNT(rr.report_id) DESC,
+        MAX(rr.reported_at) DESC;
 END;
 GO
 
--- Báo cáo đánh giá vi phạm (Có kiểm tra chống spam và lưu vào bảng Review_Reports)
+-- Báo cáo đánh giá vi phạm (Lưu vào bảng Review_Reports, chống spam, không lưu chuỗi trên Reviews)
 CREATE OR ALTER PROCEDURE sp_ReportReview
     @review_id INT,
     @user_id INT,
@@ -175,14 +174,14 @@ BEGIN
         RETURN;
     END
 
-    -- ngăn không cho tự báo cáo đánh giá của chính mình
+    -- Ngăn không cho tự báo cáo đánh giá của chính mình
     IF EXISTS (SELECT 1 FROM dbo.Reviews WHERE review_id = @review_id AND user_id = @user_id)
     BEGIN
         RAISERROR(N'Bạn không thể tự báo cáo đánh giá của chính mình.', 16, 1);
         RETURN;
     END
 
-    -- kiểm tra người dùng đã báo cáo đánh giá này chưa
+    -- Kiểm tra người dùng đã báo cáo đánh giá này chưa (chống spam)
     IF EXISTS (SELECT 1 FROM dbo.Review_Reports WHERE review_id = @review_id AND user_id = @user_id)
     BEGIN
         RAISERROR(N'Bạn đã gửi báo cáo cho đánh giá này rồi, vui lòng chờ quản trị viên xử lý.', 16, 1);
@@ -192,24 +191,13 @@ BEGIN
     INSERT INTO dbo.Review_Reports (review_id, user_id, report_reason, report_detail, reported_at)
     VALUES (@review_id, @user_id, @report_reason, @report_detail, DATEADD(HOUR, 7, GETUTCDATE()));
 
-    -- cập nhật bảng Reviews (chuyển sang PENDING, cập nhật count và lý do tóm tắt)
+    -- Cập nhật bảng Reviews (chuyển sang PENDING để Admin duyệt)
     UPDATE dbo.Reviews
-    SET 
-        report_count = (SELECT COUNT(*) FROM dbo.Review_Reports WHERE review_id = @review_id),
-        report_status = 'PENDING',
-        report_reason = CASE 
-            WHEN report_reason IS NULL OR LTRIM(RTRIM(report_reason)) = '' 
-                THEN @report_reason
-            WHEN CHARINDEX(@report_reason, report_reason) > 0 
-                THEN report_reason
-            ELSE report_reason + N' | ' + @report_reason
-        END,
-        reported_at = DATEADD(HOUR, 7, GETUTCDATE())
+    SET report_status = 'PENDING'
     WHERE review_id = @review_id;
 END;
-GO 
+GO
 
--- Lấy danh sách chi tiết tất cả người báo cáo và lý do của 1 review cụ thể (dành cho Admin modal)
 CREATE OR ALTER PROCEDURE sp_GetReviewReportDetails
     @review_id INT
 AS
@@ -276,7 +264,7 @@ BEGIN
                 N'Bình luận của bạn đã bị ẩn',
                 N'Bình luận của bạn tại tựa game "' + @game_name + N'" đã bị Ban quản trị ẩn do vi phạm tiêu chuẩn cộng đồng.',
                 'REVIEW_HIDDEN',
-                '/html/game-details.html?id=' + CAST(@game_id AS VARCHAR(10)),
+                '/html/game-details.html?id=' + CAST(@game_id AS VARCHAR(10)) + '#review-' + CAST(@review_id AS VARCHAR(10)) + '#review-' + CAST(@review_id AS VARCHAR(10)),
                 0,
                 DATEADD(HOUR, 7, GETUTCDATE())
             );

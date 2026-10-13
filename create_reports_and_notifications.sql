@@ -9,7 +9,7 @@ BEGIN
         report_id INT IDENTITY(1,1) PRIMARY KEY,
         review_id INT NOT NULL,                          -- ID bình luận bị tố cáo (FK)
         user_id INT NOT NULL,                            -- ID người gửi tố cáo (FK)
-        report_reason NVARCHAR(100) NOT NULL,            -- Lý do vi phạm chính
+        report_reason NVARCHAR(255) NOT NULL,            -- Lý do vi phạm chính
         report_detail NVARCHAR(500) NULL,                -- Ghi chú chi tiết bổ sung (tùy chọn)
         reported_at DATETIME DEFAULT DATEADD(HOUR, 7, GETUTCDATE()), -- Múi giờ UTC+7 Việt Nam
 

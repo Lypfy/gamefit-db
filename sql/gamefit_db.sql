@@ -106,16 +106,12 @@ CREATE TABLE Reviews (
     comment NVARCHAR(MAX),
     created_at DATETIME DEFAULT GETDATE(),
     is_hidden BIT DEFAULT 0,
-    report_count INT NOT NULL DEFAULT 0,
     report_status VARCHAR(20) NOT NULL DEFAULT 'NONE',
-    report_reason NVARCHAR(255),
-    reported_at DATETIME
 
     CONSTRAINT FK_Reviews_Users FOREIGN KEY (user_id) REFERENCES Users(user_id),
     CONSTRAINT FK_Reviews_Games FOREIGN KEY (game_id) REFERENCES Games(game_id),
-    CONSTRAINT UQ_Reviews_User_Game UNIQUE (user_id, game_id), -- 1 User chỉ được gửi 1 đánh giá 
-    CONSTRAINT CK_Reviews_ReportStatus CHECK (report_status IN ('NONE', 'PENDING', 'DISMISSED', 'HIDDEN')),
-    CONSTRAINT CK_Reviews_ReportCount CHECK (report_count >= 0)
+    CONSTRAINT UQ_User_Game_Review UNIQUE (user_id, game_id),
+    CONSTRAINT CK_Reviews_ReportStatus CHECK (report_status IN ('NONE', 'PENDING', 'DISMISSED', 'HIDDEN'))
 );
 
 -- 10. Bảng Wishlist
@@ -164,14 +160,14 @@ CREATE TABLE Votes (
 );
 GO
 
--- 13. Bảng Review_Reports (Quản lý chi tiết từng lượt báo cáo vi phạm, chống spam)
+-- 13. Bảng Review_Reports
 CREATE TABLE Review_Reports (
     report_id INT IDENTITY(1,1) PRIMARY KEY,
-    review_id INT NOT NULL,                          -- Đánh giá bị báo cáo
-    user_id INT NOT NULL,                            -- Người thực hiện báo cáo
-    report_reason NVARCHAR(100) NOT NULL,            -- Lý do vi phạm
-    report_detail NVARCHAR(500) NULL,                -- Ghi chú chi tiết bổ sung
-    reported_at DATETIME DEFAULT DATEADD(HOUR, 7, GETUTCDATE()), -- Múi giờ UTC+7 Việt Nam
+    review_id INT NOT NULL, 
+    user_id INT NOT NULL,
+    report_reason NVARCHAR(255) NOT NULL,
+    report_detail NVARCHAR(500) NULL,
+    reported_at DATETIME DEFAULT DATEADD(HOUR, 7, GETUTCDATE()),
 
     CONSTRAINT FK_ReviewReports_Reviews FOREIGN KEY (review_id) REFERENCES Reviews(review_id) ON DELETE CASCADE,
     CONSTRAINT FK_ReviewReports_Users FOREIGN KEY (user_id) REFERENCES Users(user_id),
@@ -182,13 +178,13 @@ GO
 -- 14. Bảng Notifications (Hộp thư thông báo người dùng)
 CREATE TABLE Notifications (
     notification_id INT IDENTITY(1,1) PRIMARY KEY,
-    user_id INT NOT NULL,                            -- Người nhận thông báo
-    title NVARCHAR(150) NOT NULL,                    -- Tiêu đề thông báo
-    message NVARCHAR(500) NOT NULL,                  -- Nội dung thông báo
+    user_id INT NOT NULL,
+    title NVARCHAR(150) NOT NULL,
+    message NVARCHAR(500) NOT NULL,
     type VARCHAR(30) NOT NULL DEFAULT 'SYSTEM',      -- REVIEW_HIDDEN, REPORT_RESULT, SYSTEM
-    target_url VARCHAR(255) NULL,                    -- Đường dẫn đính kèm khi click
+    target_url VARCHAR(255) NULL,
     is_read BIT NOT NULL DEFAULT 0,                   -- 0: Chưa đọc, 1: Đã đọc
-    created_at DATETIME DEFAULT DATEADD(HOUR, 7, GETUTCDATE()), -- Múi giờ UTC+7 Việt Nam
+    created_at DATETIME DEFAULT DATEADD(HOUR, 7, GETUTCDATE()),
 
     CONSTRAINT FK_Notifications_Users FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE
 );

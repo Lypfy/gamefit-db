@@ -490,12 +490,23 @@ AS
 GO 
 
 -- Reviews
-CREATE OR ALTER FUNCTION fn_getReviews (@game_id INT) 
+CREATE OR ALTER FUNCTION fn_getReviews (@game_id INT, @current_user_id INT = NULL) 
 RETURNS TABLE
 AS
     RETURN (
-        SELECT review_id, user_id, user_name, rating, comment, created_at
-        FROM vw_Review_Details 
-        WHERE game_id = @game_id 
+        SELECT 
+            r.review_id, 
+            r.user_id, 
+            u.user_name, 
+            r.rating, 
+            r.comment, 
+            r.created_at,
+            ISNULL(r.is_hidden, 0) AS is_hidden
+        FROM Reviews r
+        JOIN Users u ON r.user_id = u.user_id
+        JOIN Games g ON r.game_id = g.game_id
+        WHERE r.game_id = @game_id 
+          AND g.is_active = 1
+          AND (ISNULL(r.is_hidden, 0) = 0 OR (@current_user_id IS NOT NULL AND r.user_id = @current_user_id))
     )
 GO 
