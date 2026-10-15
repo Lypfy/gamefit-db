@@ -1,4 +1,4 @@
-﻿/*  - MUC LUC
+/*  - MUC LUC
         + GamePCRec
         + GameRequirement
         + Games 
@@ -34,18 +34,25 @@ BEGIN
     -- 1. Xử lý trường hợp Update (Nếu bộ user_id, game_id, pc_id đã tồn tại)
     UPDATE G
     SET 
-        G.is_hidden = 0,         -- Khôi phục lại bài nếu trước đó bị ẩn
-        G.type = i.type,         -- Cập nhật loại cấu hình mới
-        G.note = i.note,         -- Cập nhật ghi chú mới
-        G.created_at = GETDATE() -- Reset lại ngày đăng
+        G.is_hidden = 0,                                                    -- Khôi phục lại bài nếu trước đó bị ẩn
+        G.type = i.type,                                                    -- Cập nhật loại cấu hình mới
+        G.note = i.note,                                                    -- Cập nhật ghi chú mới
+        G.created_at = GETDATE(),                                           -- Reset lại ngày đăng
+        G.status = ISNULL(i.status, 'PENDING')                              -- Đưa về PENDING khi user cập nhật lại
     FROM Game_PC_Recommendation G
     JOIN inserted i ON G.user_id = i.user_id 
                    AND G.game_id = i.game_id 
                    AND G.pc_id = i.pc_id;
 
     -- 2. Xử lý trường hợp Insert mới (Nếu bộ user_id, game_id, pc_id chưa tồn tại)
-    INSERT INTO Game_PC_Recommendation (user_id, game_id, pc_id, type, note)
-    SELECT i.user_id, i.game_id, i.pc_id, i.type, i.note
+    INSERT INTO Game_PC_Recommendation (user_id, game_id, pc_id, type, note, status)
+    SELECT 
+        i.user_id, 
+        i.game_id, 
+        i.pc_id, 
+        i.type, 
+        i.note, 
+        ISNULL(i.status, 'PENDING')
     FROM inserted i
     WHERE NOT EXISTS (
         SELECT 1 

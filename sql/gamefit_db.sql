@@ -134,8 +134,12 @@ CREATE TABLE Game_PC_Recommendation (
     type VARCHAR(20) NOT NULL CHECK(type IN('MINIMUM', 'RECOMMENDED')),
     note NVARCHAR(500) NULL,
     created_at DATETIME DEFAULT GETDATE(),
-    is_hidden BIT DEFAULT 0,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED', 'REPLACED')),
+    reviewed_by INT NULL,
+    reviewed_at DATETIME NULL,
+    reject_reason NVARCHAR(500) NULL,
     CONSTRAINT FK_GamePCRec_Users FOREIGN KEY (user_id) REFERENCES Users(user_id),
+    CONSTRAINT FK_GamePCRec_Admin FOREIGN KEY (reviewed_by) REFERENCES Users(user_id),
     CONSTRAINT FK_GamePCRec_Games FOREIGN KEY (game_id) REFERENCES Games(game_id),
     CONSTRAINT FK_GamePCRec_UserPc FOREIGN KEY (pc_id) REFERENCES User_pc(pc_id),
 
