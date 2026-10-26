@@ -28,6 +28,16 @@ BEGIN
         -- 3. Gán các tag cho game (Đảm bảo nếu tag thêm lỗi thì toàn bộ việc thêm game được rollback)
         IF @name_tag IS NOT NULL AND LEN(TRIM(@name_tag)) > 0
         BEGIN
+            -- Kiểm tra: Nếu tất cả tag truyền vào đều không tồn tại trong DB -> Báo lỗi để kích hoạt ROLLBACK
+            IF NOT EXISTS (
+                SELECT 1 FROM Tags t 
+                INNER JOIN STRING_SPLIT(@name_tag, ',') s 
+                    ON LOWER(LTRIM(RTRIM(s.value))) = LOWER(LTRIM(RTRIM(t.name)))
+            )
+            BEGIN
+                RAISERROR(N'Thể loại game không hợp lệ hoặc không tồn tại trong hệ thống.', 16, 1);
+            END;
+
             INSERT INTO Games_Tags(game_id, tag_id) 
             SELECT DISTINCT @game_id, t.tag_id 
             FROM Tags t

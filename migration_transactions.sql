@@ -34,26 +34,33 @@ BEGIN
 
     BEGIN TRY
         BEGIN TRANSACTION;
-
-        -- 1. Thêm game vào bảng Games (Bao gồm cả cột image)
+        -- 1. Thêm game vào bảng Games
         INSERT INTO Games(name, description, publisher, developer, release_date, download_url, image) 
         VALUES (@name, @description, @publisher, @developer, @release_date, @download_url, @image);
 
         -- 2. Lấy ID game vừa tạo
         SET @game_id = SCOPE_IDENTITY();
 
-        -- 3. Gán các tag cho game (Đảm bảo nếu tag thêm lỗi thì toàn bộ việc thêm game được rollback)
+        -- 3. Gán các tag cho game
         IF @name_tag IS NOT NULL AND LEN(TRIM(@name_tag)) > 0
         BEGIN
+            -- Kiểm tra: Nếu tất cả tag truyền vào đều không tồn tại trong DB -> Báo lỗi để kích hoạt ROLLBACK
+            IF NOT EXISTS (
+                SELECT 1 FROM Tags t 
+                INNER JOIN STRING_SPLIT(@name_tag, ',') s 
+                    ON LOWER(LTRIM(RTRIM(s.value))) = LOWER(LTRIM(RTRIM(t.name)))
+            )
+            BEGIN
+                RAISERROR(N'Thể loại game không hợp lệ hoặc không tồn tại trong hệ thống.', 16, 1);
+            END;
+
             INSERT INTO Games_Tags(game_id, tag_id) 
             SELECT DISTINCT @game_id, t.tag_id 
             FROM Tags t
             INNER JOIN STRING_SPLIT(@name_tag, ',') s
                 ON LOWER(LTRIM(RTRIM(s.value))) = LOWER(LTRIM(RTRIM(t.name)));
         END;
-
         COMMIT TRANSACTION;
-
         -- 4. Trả về ID game vừa tạo
         SELECT @game_id AS game_id;
     END TRY
@@ -98,7 +105,7 @@ BEGIN
             is_active = @is_active
         WHERE game_id = @game_id;
 
-        -- 2. Cập nhật danh sách thể loại / Tags (Nếu bước insert lỗi thì rollback hoàn lại tag cũ)
+        -- 2. Cập nhật danh sách Tags
         IF @name_tag IS NOT NULL
         BEGIN
             DELETE FROM Games_Tags WHERE game_id = @game_id;
